@@ -1,5 +1,5 @@
 /***************************************************
- Proud Mary Fish v200815_01
+ Proud Mary Fish v200815_03
  Play an mp3 file on SD card of DFPlayer.
  Check for start/pause/restart button/logic press.
  Begins playing when button is pressed first time.
@@ -17,6 +17,10 @@
  
  DFPlayer - A Mini MP3 Player For Arduino
  <https://www.dfrobot.com/product-1121.html>
+
+ 0.1 initial
+ 0.2 renumber motor pins
+ 0.3 short timing, add quiet time for mouth
 **/
 
 #include "Arduino.h"
@@ -25,9 +29,9 @@
 # define ACTIVATED LOW
 
 // motor pins
-int TAIL_MOTOR  = 5;
-int MOUTH_MOTOR = 6;
-int BODY_MOTOR  = 7;
+int TAIL_MOTOR  = 7;
+int MOUTH_MOTOR = 5;
+int BODY_MOTOR  = 6;
 
 // mp3 player pins
 SoftwareSerial mySoftwareSerial(10,11); // RX, TX
@@ -38,8 +42,7 @@ int buttonPause = 3;
 
 // global flags
 boolean isPlaying = false;
-unsigned long gLastTimeStamp;
-
+unsigned long gStartTime;  // when button is pressed to ON state
 
 // Start mouth moving at MOUTH_START_AT from beginning of song,
 // then alternate on/off every MOUTH_BEAT msec
@@ -48,6 +51,11 @@ unsigned long MOUTH_BEAT     = 300; // ms
 boolean       gMouthState    = false;
 unsigned long gLastMouthTime = millis();
 unsigned long mouthStartAt    = MOUTH_START_AT;
+const int NUM_MOUTH_QUIET_TIMES = 1*2;
+unsigned long MOUTH_QUIET_TIMES[NUM_MOUTH_QUIET_TIMES] = {
+                               
+                               38000,   11750    // music interlude here
+                             };
 
 // Start tail moving at TAIL_START_AT from beginning of song,
 // then alternate on/off every TAIL_BEAT msec
@@ -61,19 +69,25 @@ unsigned long tailStartAt   = TAIL_START_AT;
 // BODY_PULSES[odd] number of mseconds
 boolean       gBodyState    = false;
 unsigned long gLastBodyTime = millis();
-const int NUM_BODY_PULSES = 12;
+const int NUM_BODY_PULSES = 12*2;
 
 // For body, turn it on at the pre-determined times for a pre-determined durations
 // For Proud Mary, body moves when chorus kicks in
 // This is a dual array, the even values represent start time from beginning
 // of song (in ms), odd values correspond to corresponding duration (in ms)
 unsigned long BODY_PULSES[NUM_BODY_PULSES] = {
-                             19750,  800, // chorus rollin
-                             22500,  800, // chorus burnin
-                             50000,  2000,// cleaned alota plates
-                             95000,  2000,
-                             95000,  2000,
-                             95000,  3000
+                             19750,   800, // chorus rollin
+                             22500,   800, // chorus burnin
+                             24500,   800, // rollin
+                             26750,   800, //
+                             29000,   800, //
+                             31000,   800,
+                             35000,  4000, //deedoop doop doop doop
+                             50000,  2000, // cleaned alota plates
+                             63000,   800, // rollin chorus
+                             66000,800,
+                             68000,800,
+                             75000,   2000
                              };
 // at run time, we update the body_pulses array start time values
 // to keep in jive with real time, so this is the variable version
@@ -133,17 +147,29 @@ void setup()
   myDFPlayer.outputDevice(DFPLAYER_DEVICE_SD);
 
   // set volume
-  myDFPlayer.volume(20);
+  myDFPlayer.volume(30);
   delay(500);
 
   // we don't actually start playing the song until user hits
   // the start/stop/continue button
 
-  gLastTimeStamp = millis();
 }
 
 void loop(){  
-  Serial.print("DEBUG current time/isPlaying: ");Serial.print(isPlaying);Serial.print(" ");Serial.println(millis());
+  unsigned long now = millis();
+  if( !isPlaying ){
+    Serial.print("DEBUG current time/isPlaying: ");Serial.print(isPlaying);Serial.print(" ");Serial.println(now);
+  }
+  else {
+    unsigned long relTime = now - gStartTime;
+    Serial.print("DEBUG current time/gtime/relTime ");Serial.print(isPlaying);Serial.print(" ");
+    Serial.print(now);Serial.print(" ");
+    Serial.print(gStartTime);Serial.print(" ");
+
+    Serial.print(relTime);Serial.println(" ");
+
+  }
+  
   // as time goes by, run the motors, if needed
   runTailIfNeeded();
   runMouthIfNeeded();
@@ -181,6 +207,7 @@ void loop(){
         delay(500);
                       
         unsigned long n = millis();
+        gStartTime = n;
         gLastMouthTime = n;
         gLastTailTime  = n;
         gLastBodyTime  = n;
@@ -221,7 +248,6 @@ void loop(){
       }
     }*/
   }
-  gLastTimeStamp = millis();
 
 }
 void stopAll() {
@@ -250,7 +276,7 @@ void runBodyIfNeeded( ) {
 
   unsigned long start = bodyPulses[currentBodyIdx];
   unsigned long endt  = start + bodyPulses[currentBodyIdx+1];
-  Serial.print("i/s/e/n ");Serial.print(currentBodyIdx);Serial.print("/");Serial.print(start);Serial.print("/");Serial.print(endt);Serial.print("/");Serial.println(now);
+  ////////////Serial.print("body i/s/e/n ");Serial.print(currentBodyIdx);Serial.print("/");Serial.print(start);Serial.print("/");Serial.print(endt);Serial.print("/");Serial.println(now);
   
   if( now < start){
     log('not ready for body');
@@ -273,7 +299,11 @@ void runBodyIfNeeded( ) {
   return;
 
 }
- 
+
+/**
+ * Open and close mouth at specified start time, but also check
+ * if we are in the middle of a quiet time for the mouth
+ */
 void runMouthIfNeeded( ) {
   unsigned long now = millis();
   if( !isPlaying ) return;
@@ -285,11 +315,43 @@ void runMouthIfNeeded( ) {
      //Serial.print('BEAT > timeLapsed');Serial.println(timeLapsed);
      if( gMouthState ){ gMouthState = false;}
      else             { gMouthState = true; }
-     if( gMouthState ){digitalWrite( MOUTH_MOTOR, HIGH);mlog("MON");}
-     else             {digitalWrite( MOUTH_MOTOR, LOW);mlog("moff");}
+     if  ( !gMouthState || isQuietMouthTime()  ){digitalWrite( MOUTH_MOTOR, LOW);mlog("moff");}
+     else{digitalWrite( MOUTH_MOTOR, HIGH);mlog("MON");}
+
      gLastMouthTime = now;
   }
 }
+
+/**
+ * Check mouth quiet time array and see if the current
+ * time falls within one of the quiet periods, if so
+ * returns true, else false
+ */
+boolean isQuietMouthTime() {
+  unsigned long curTime = millis();
+  for(int i =0; i < NUM_MOUTH_QUIET_TIMES; i+=2){
+      unsigned long sTime = gStartTime + MOUTH_QUIET_TIMES[i];
+      unsigned long eTime = sTime   + MOUTH_QUIET_TIMES[i+1];
+      Serial.print("mouth quiet time? i/s/e/n");
+      Serial.print(i);    Serial.print("/");
+      Serial.print(sTime);Serial.print("/");
+      Serial.print(eTime);Serial.print("/");
+      Serial.println(curTime);
+
+    if( curTime > sTime && curTime < eTime ){
+      Serial.println("should be quiet");
+
+      return true;
+    }
+  }
+  return false;
+}
+
+
+/**
+ * Turn tail on and off
+ * 
+ */
 void runTailIfNeeded( ) {
   unsigned long now = millis();
   if( !isPlaying ) return;
