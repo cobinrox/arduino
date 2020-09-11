@@ -1,6 +1,8 @@
 # Maryfish
 Arduino control of Billy Bass Fish, playing a snippet of Proud Mary
 
+![demo.mov](demo.mov)
+
 This project consists of the following major parts:
 1. Billy Bass Fish with 3 motors (Head, Tail, Body)
 2. Arduino microcontroller
@@ -22,6 +24,8 @@ This project consists of the following major parts:
 1. Tear apart fish, access the Head, Tail, Body motor wires
 2. Identify which motor wires are + and -
 3. Connect DFPlayer, transistors, switch to Arduino
+![Arduino+DFPlayer](1_arduino_mp3.jpg)
+![Transistor](2_transistor.jpg)
 4. Load MP3 file onto a micro SD card and insert card into DFPlayer (see the ino file for notes on formatting the card and naming the file)
 5. Load ino file into Arduino
 
